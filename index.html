@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <title>Bloom Family Law — Process Hub</title>
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
+<meta name="googlebot" content="noindex, nofollow">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -20,7 +23,18 @@
   ::-webkit-scrollbar-thumb{background:var(--rule);border-radius:6px;}
   ::-webkit-scrollbar-thumb:hover{background:var(--sage-deep);}
 
-  .app{display:flex;height:100vh;overflow:hidden;}
+  .app{display:none;height:100vh;overflow:hidden;}
+  .app.ready{display:flex;}
+
+  .gate{position:fixed;inset:0;background:var(--paper);display:flex;align-items:center;justify-content:center;z-index:100;}
+  .gate-card{background:var(--panel);border:1px solid var(--rule);border-radius:16px;padding:44px 40px;max-width:380px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(44,69,80,.12);}
+  .gate-card .glogo{height:48px;width:auto;margin:0 auto 18px;display:block;}
+  .gate-card h1{font-family:'Cormorant Garamond',serif;font-weight:500;font-size:24px;color:var(--navy);margin:0 0 8px;}
+  .gate-card p{font-size:13.5px;color:var(--ink-soft);line-height:1.6;margin:0 0 24px;}
+  .gate-btn-wrap{display:flex;justify-content:center;margin-bottom:14px;}
+  .gate-denied{background:var(--rust-bg);border:1px solid var(--rust);color:var(--rust);border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.6;margin-top:16px;text-align:left;display:none;}
+  .gate-denied.show{display:block;}
+  .gate-retry{background:transparent;border:none;color:var(--navy);text-decoration:underline;font-size:12px;cursor:pointer;margin-top:10px;padding:0;}
 
   .sidebar{width:320px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--rule);display:flex;flex-direction:column;overflow:hidden;box-shadow:2px 0 12px rgba(44,69,80,.04);}
   .sidebar-head{padding:22px 18px 18px;border-bottom:1px solid var(--rule);background:linear-gradient(165deg, var(--sage-bg) 0%, var(--panel) 75%);}
@@ -93,7 +107,17 @@
 </head>
 <body>
 
-<div class="app">
+<div class="gate" id="gate">
+  <div class="gate-card">
+    <img id="gateLogo" alt="Bloom Family Law" class="glogo">
+    <h1>Process Hub</h1>
+    <p>Sign in with your Bloom Family Law Google account to continue.</p>
+    <div class="gate-btn-wrap" id="googleSignInBtn"></div>
+    <div class="gate-denied" id="gateDenied"></div>
+  </div>
+</div>
+
+<div class="app" id="appWrap">
   <button class="mobile-toggle" id="mobileToggle" onclick="toggleSidebar()">☰ Menu</button>
 
   <div class="sidebar" id="sidebar">
@@ -129,7 +153,11 @@
 // ---- CONFIGURATION ----
 // Paste the Web App URL from your Apps Script deployment here (ends in /exec).
 const CONFIG = {
-  APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbyHLyYXenUnGANSxUkdsZNlLGW48AMyCS0ahSKnWlYAL8d4qXyZXxZZvpagGxwm6WHk/exec',
+  APPS_SCRIPT_URL: 'PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE',
+  // From Google Cloud Console -> APIs & Services -> Credentials -> OAuth Client ID.
+  GOOGLE_CLIENT_ID: '5642723236-ctfti6umqchs1oqief1nfeoie0pdmue2.apps.googleusercontent.com',
+  // Accounts signing in must have an email ending in one of these domains.
+  ALLOWED_DOMAINS: ['bloomlegalcoach.com'],
 };
 
 let RAW = null;      // raw fetched data
@@ -369,7 +397,67 @@ function onSearchInput(){
   }).join('') + `</div>`;
 }
 
-loadData(false);
+// ---- Authentication gate ----
+// Uses Google Identity Services. Verifies the signed-in account's email
+// domain matches CONFIG.ALLOWED_DOMAINS before revealing any content or
+// fetching data from Apps Script.
+
+function decodeJwt(token){
+  const payload = token.split('.')[1];
+  const json = decodeURIComponent(
+    atob(payload.replace(/-/g,'+').replace(/_/g,'/'))
+      .split('')
+      .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+      .join('')
+  );
+  return JSON.parse(json);
+}
+
+function handleCredentialResponse(response){
+  let claims;
+  try { claims = decodeJwt(response.credential); }
+  catch (e){ showGateDenied('Could not verify that sign-in. Please try again.'); return; }
+
+  const email = (claims.email || '').toLowerCase();
+  const domain = email.split('@')[1] || '';
+  const allowed = CONFIG.ALLOWED_DOMAINS.map(d => d.toLowerCase());
+  const domainOk = claims.email_verified && allowed.includes(domain);
+
+  if (domainOk){
+    document.getElementById('gate').style.display = 'none';
+    document.getElementById('appWrap').classList.add('ready');
+    loadData(false);
+  } else {
+    showGateDenied(`"${claims.email || 'That account'}" isn't a Bloom Family Law account. Sign in with your @${CONFIG.ALLOWED_DOMAINS[0]} Google account instead.`);
+  }
+}
+
+function showGateDenied(message){
+  const el = document.getElementById('gateDenied');
+  el.textContent = message;
+  el.classList.add('show');
+}
+
+window.addEventListener('load', function(){
+  // Reuse the sidebar's embedded logo image on the sign-in card too,
+  // instead of duplicating the (large) base64 string in two places.
+  const sidebarLogo = document.querySelector('.sidebar-head .logo');
+  const gateLogo = document.getElementById('gateLogo');
+  if (sidebarLogo && gateLogo) gateLogo.src = sidebarLogo.src;
+
+  if (window.google && google.accounts && google.accounts.id){
+    google.accounts.id.initialize({
+      client_id: CONFIG.GOOGLE_CLIENT_ID,
+      callback: handleCredentialResponse,
+    });
+    google.accounts.id.renderButton(
+      document.getElementById('googleSignInBtn'),
+      { theme: 'outline', size: 'large', text: 'signin_with' }
+    );
+  } else {
+    showGateDenied('Could not load Google Sign-In. Check your internet connection and refresh.');
+  }
+});
 </script>
 </body>
 </html>
