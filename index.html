@@ -184,13 +184,25 @@ function toggleSidebar(){
 function loadData(isManualRefresh){
   const label = document.getElementById('docTitleLabel');
   if (isManualRefresh) label.textContent = 'Refreshing…';
+  const clientStart = performance.now();
   fetch(CONFIG.APPS_SCRIPT_URL, { cache: 'no-store' })
     .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
     .then(json => {
+      const clientMs = Math.round(performance.now() - clientStart);
       RAW = json;
       TABS = buildTree(json.tabs || []);
       document.getElementById('docTitleLabel').textContent = json.docTitle || 'Process Doc';
-      document.getElementById('lastUpdated').textContent = 'Loaded ' + new Date().toLocaleTimeString();
+
+      const diag = json._diag;
+      let timingText = `Loaded in ${(clientMs/1000).toFixed(1)}s`;
+      if (diag){
+        timingText += diag.cached
+          ? ` (server: cached, ${diag.serverMs}ms)`
+          : ` (server: fresh read, ${(diag.serverMs/1000).toFixed(1)}s${diag.cacheWriteSucceeded===false ? ' — too large to cache!' : ''})`;
+      }
+      document.getElementById('lastUpdated').textContent = timingText;
+      document.getElementById('lastUpdated').title = timingText; // full text on hover if truncated
+
       renderSidebar();
       routeFromHash();
     })
