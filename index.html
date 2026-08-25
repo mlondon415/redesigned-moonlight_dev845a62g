@@ -83,6 +83,11 @@
   .block-li{font-size:15.5px;line-height:1.75;color:var(--ink);margin:0 0 8px 4px;padding-left:20px;position:relative;}
   .block-li::before{content:'';position:absolute;left:4px;top:11px;width:5px;height:5px;border-radius:50%;background:var(--sage-deep);}
   .block-img{max-width:100%;height:auto;border-radius:10px;border:1px solid var(--rule);box-shadow:0 6px 20px rgba(44,69,80,.08);margin:14px 0 20px;display:block;}
+
+  .centered-page{text-align:center;}
+  .centered-page .flourish{margin-left:auto;margin-right:auto;}
+  .centered-page .block-img{margin-left:auto;margin-right:auto;}
+  .centered-page .sub-h2, .centered-page .sub-h3{text-align:center;}
   .doc-link{color:var(--teal);text-decoration:underline;text-decoration-color:var(--sage);text-underline-offset:2px;transition:color .1s;}
   .doc-link:hover{color:var(--navy);text-decoration-color:var(--navy);}
 
@@ -158,6 +163,12 @@ const CONFIG = {
   GOOGLE_CLIENT_ID: '5642723236-ctfti6umqchs1oqief1nfeoie0pdmue2.apps.googleusercontent.com',
   // Accounts signing in must have an email ending in one of these domains.
   ALLOWED_DOMAINS: ['bloomlegalcoach.com'],
+  // The page whose heading contains this text (case-insensitive, partial
+  // match) opens automatically instead of a generic welcome screen. Edit
+  // this if your actual heading is worded differently — e.g. "Welcome to
+  // the Team" or "Team Overview" both work, since it's just a substring
+  // match, not an exact one.
+  DEFAULT_PAGE_HEADING: 'Team Overview',
 };
 
 let RAW = null;      // raw fetched data
@@ -259,13 +270,31 @@ function routeFromHash(){
   renderPage(tabId, anchor, subAnchor);
 }
 
+function findDefaultPage(){
+  const needle = (CONFIG.DEFAULT_PAGE_HEADING || '').trim().toLowerCase();
+  if (!needle) return null;
+  for (const tab of TABS){
+    for (const page of tab.pages){
+      if (page.heading && page.heading.toLowerCase().includes(needle)){
+        return { tabId: tab.id, anchor: page.anchor };
+      }
+    }
+  }
+  return null;
+}
+
 function showWelcome(){
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  const total = TABS.reduce((s,t)=>s+t.pages.length,0);
+  const defaultPage = findDefaultPage();
+  if (defaultPage){
+    navigateTo(defaultPage.tabId, defaultPage.anchor);
+    return;
+  }
+  // Fallback only shows if CONFIG.DEFAULT_PAGE_HEADING doesn't match anything —
+  // worth double-checking that setting if you land here unexpectedly.
   document.getElementById('mainInner').innerHTML = `
     <div class="empty-state"><div class="es-inner">
-      <h2>Welcome to the Process Hub</h2>
-      <p>Search above, or choose a topic from the sidebar. ${total} pages across ${TABS.length} section${TABS.length===1?'':'s'}.</p>
+      <h2>Process Hub</h2>
     </div></div>`;
 }
 
@@ -285,12 +314,17 @@ function renderPage(tabId, anchor, subAnchor){
     n.classList.toggle('active', n.getAttribute('data-key') === (tabId + '::' + anchor));
   });
 
+  const defaultPage = findDefaultPage();
+  const isLandingPage = defaultPage && defaultPage.tabId === tabId && defaultPage.anchor === anchor;
+
   const html = [];
+  if (isLandingPage) html.push('<div class="centered-page">');
   html.push(`<div class="page-breadcrumb">${esc(tab.title)}</div>`);
   html.push(`<h1 class="page-h1">${esc(page.heading)}</h1>`);
   html.push(flourishSvg());
   html.push(renderBlocks(page.blocks));
   html.push(renderChildren(page.children, tabId, page.anchor));
+  if (isLandingPage) html.push('</div>');
 
   document.getElementById('mainInner').innerHTML = html.join('');
   document.getElementById('main').scrollTop = 0;
